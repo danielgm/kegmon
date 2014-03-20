@@ -134,10 +134,6 @@ bool request(int reading) {
     String data = "{\"version\":\"1.0.0\",\"datastreams\": [{\"id\":\"forceSensor\",\"current_value\":\"";
     data = data + reading + "\"}]}";
 
-    Serial.println("BEGIN DATA");
-    Serial.println(data);
-    Serial.println("END DATA");
-
     clientPrintln("PUT /v2/feeds/734040001.json HTTP/1.1");
     clientPrintln("X-ApiKey: SU5B4qKyxQ9NjidtFHaiDNpEIjClFCATSqxmnCobzfS5J8kJ");
     clientPrintln("User-Agent: Arduino/1.0");
