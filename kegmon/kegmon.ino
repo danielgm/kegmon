@@ -27,6 +27,8 @@ void setup() {
 }
 
 void loop() {
+  int flexiForceReading = analogRead(flexiForcePin);
+  
   switch (state) {
     case STATE_DISCONNECTED:
       if (ready() && connect()) {
@@ -37,7 +39,7 @@ void loop() {
       break;
 
     case STATE_CONNECTED:
-      if (ready() && request()) {
+      if (ready() && request(flexiForceReading)) {
         p("STATE_REQUESTED");
         state = STATE_REQUESTED;
       }
@@ -62,7 +64,7 @@ void loop() {
       break;
 
     default:
-      p("Unknown state.");
+      p("Error: unknown state.");
   }
   
   delay(100);
@@ -122,17 +124,19 @@ bool connect() {
   }
 }
 
-bool request() {
+bool request(int reading) {
   if (client.connected() || client.connect()) {
     clientFlush();
 
     p("Sending request.");
 
-    int flexiForceReading = analogRead(flexiForcePin);
-    p("Sending request. v=" + String(flexiForceReading));
+    p("Sending request. v=" + String(reading));
     p();
 
-    String data = String("{\"version\":\"1.0.0\",\"datastreams\": [{\"id\":\"forceSensor\",\"current_value\":\"") + String(flexiForceReading) + String("\"}]}");
+    // Weird bug if you don't initialize it as a regular string first, then start adding values.
+    // @see http://arduino.cc/en/Tutorial/StringAdditionOperator#.Uyqhbq1dUdI
+    String data = "{\"version\":\"1.0.0\",\"datastreams\": [{\"id\":\"forceSensor\",\"current_value\":\"";
+    data = data + reading + "\"}]}";
 
     Serial.println("BEGIN DATA");
     Serial.println(data);
