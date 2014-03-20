@@ -7,93 +7,173 @@ int flexiForcePin = A0;
 WiFlyClient client("api.xively.com" , 80);
 
 unsigned long startTime;
-bool joined;
+unsigned long timeoutTime;
 String responseBuffer;
+
+int state;
+
+#define STATE_DISCONNECTED 1
+#define STATE_CONNECTED 2
+#define STATE_REQUESTED 3
+#define STATE_RESPONDED 4
 
 void setup() {
   Serial.begin(9600);
   startTime = millis();
-  joined = false;
   responseBuffer = "";
+  state = STATE_DISCONNECTED;
+  
+  p("Initialized.");
 }
 
 void loop() {
-  if (joined) {
-    if (millis() > startTime + 5000) {
-      if (client.connected() || client.connect()) {
-        Serial.println("Got here.");
-        int flexiForceReading = analogRead(flexiForcePin);
-        Serial.println("Sending request. v=" + String(flexiForceReading));
-        Serial.println();
-        
-        String data = String("{\"version\":\"1.0.0\",\"datastreams\": [{\"id\":\"forceSensor\",\"current_value\":\"")
-          + String(flexiForceReading) + String("\"}]}");
-        
-        Serial.println("PUT /v2/feeds/734040001.json HTTP/1.1");
-        Serial.println("X-ApiKey: SU5B4qKyxQ9NjidtFHaiDNpEIjClFCATSqxmnCobzfS5J8kJ");
-        Serial.println("User-Agent: Arduino/1.0");
-        Serial.println("Host: api.xively.com");
-        Serial.println("Content-Type: text/json");
-        Serial.println("Content-Length: " + String(data.length()));
-        //Serial.println("Connection: close");
-        Serial.println();
-        Serial.println(data);
-        client.println();
-        client.println();
-        
-        client.println("PUT /v2/feeds/734040001.json HTTP/1.1");
-        client.println("X-ApiKey: SU5B4qKyxQ9NjidtFHaiDNpEIjClFCATSqxmnCobzfS5J8kJ");
-        client.println("User-Agent: Arduino/1.0");
-        client.println("Host: api.xively.com");
-        client.println("Content-Type: text/json");
-        client.println("Content-Length: " + String(data.length()));
-        //client.println("Connection: close");
-        client.println();
-        client.println(data);
-        client.println();
-        client.println();
-        
-        Serial.println("Request sent.");
+  switch (state) {
+    case STATE_DISCONNECTED:
+      if (ready() && connect()) {
+        p();
+        p("STATE_CONNECTED");
+        state = STATE_CONNECTED;
       }
-      else {
-        Serial.println("Error connecting with remote host"); 
-        joined = false;
+      break;
+
+    case STATE_CONNECTED:
+      if (ready() && request()) {
+        p("STATE_REQUESTED");
+        state = STATE_REQUESTED;
       }
-      startTime = millis();
-    }
-    else {
-      sleeping();
-    }
+      break;
+
+    case STATE_REQUESTED:
+      if (ready() && receive()) {
+        p("STATE_RESPONDED");
+        state = STATE_RESPONDED;
+      }
+      else if (timedOut()) {
+        p("STATE_DISCONNECTED");
+        state = STATE_DISCONNECTED;
+      }
+      break;
+
+    case STATE_RESPONDED:
+      if (ready()) {
+        p("STATE_CONNECTED");
+        state = STATE_CONNECTED;
+      }
+      break;
+
+    default:
+      p("Unknown state.");
   }
-  else {
-    if (millis() > startTime + 2000) {
-      Serial.println("Wifly trying to join.");
-      
-      WiFly.begin();
-      if (joined = WiFly.join(ssid, passphrase)) {
-        Serial.println("Joined '" + String(ssid) + "'");
-      }
-      else {
-        Serial.println("Failed to join network. Waiting to try again.");
-        startTime = millis();
-      }
-    }
-    else {
-      sleeping();
-    }
+  
+  delay(100);
+}
+
+bool ready() {
+  int delay;
+  switch (state) {
+    case STATE_DISCONNECTED:
+      // Delay before attempting to connect.
+      delay = 5000;
+      break;
+
+    case STATE_CONNECTED:
+      // Delay before making a request.
+      delay = 5000;
+      break;
+
+    case STATE_REQUESTED:
+      // Delay between checking for response.
+      delay = 500;
+      break;
+
+    case STATE_RESPONDED:
+      // Delay before moving back to connected state.
+      delay = 10000;
+      break;
   }
 
-  delay(100);
+  if (millis() > startTime + delay) {
+    return true;
+  }
+  else {
+    Serial.print(".");
+    return false;
+  }
+}
+
+bool timedOut() {
+  return millis() > timeoutTime;
+}
+
+bool connect() {
+  p();
+  p("Wifly trying to join.");
+  
+  WiFly.begin();
+  if (WiFly.join(ssid, passphrase)) {
+    p("Joined '" + String(ssid) + "'");
+    startTime = millis();
+    return true;
+  }
+  else {
+    p("Failed to join network. Waiting to try again.");
+    startTime = millis();
+    return false;
+  }
+}
+
+bool request() {
+  if (client.connected() || client.connect()) {
+    clientFlush();
+
+    p("Sending request.");
+
+    int flexiForceReading = analogRead(flexiForcePin);
+    p("Sending request. v=" + String(flexiForceReading));
+    p();
+
+    String data = String("{\"version\":\"1.0.0\",\"datastreams\": [{\"id\":\"forceSensor\",\"current_value\":\"") + String(flexiForceReading) + String("\"}]}");
+
+    Serial.println("BEGIN DATA");
+    Serial.println(data);
+    Serial.println("END DATA");
+
+    clientPrintln("PUT /v2/feeds/734040001.json HTTP/1.1");
+    clientPrintln("X-ApiKey: SU5B4qKyxQ9NjidtFHaiDNpEIjClFCATSqxmnCobzfS5J8kJ");
+    clientPrintln("User-Agent: Arduino/1.0");
+    clientPrintln("Host: api.xively.com");
+    clientPrintln("Content-Type: text/json");
+    clientPrintln("Content-Length: " + String(data.length()));
+    //clientPrintln("Connection: close");
+    clientPrintln();
+    clientPrintln(data);
+    clientPrintln();
+    clientPrintln();
+
+    p("Request sent.");
+    startTime = millis();
+    timeoutTime = startTime + 5000;
+    return true;
+  }
+  else {
+    p("Error connecting with remote host");
+    startTime = millis();
+    return false;
+  }
+}
+
+bool receive() {
+  char c;
+  bool gotHttp200 = false;
+  
+  p();
+  p("--- BEGIN Receive Chunk");
   while (client.available()) {
     char c = client.read();
     if (c == '\n' || c == '\r') {
       if (responseBuffer != "") {
-        Serial.println("> " + responseBuffer);
-        
-        if (responseBuffer == "HTTP/1.1 200 OK") {
-          Serial.println("Got HTTP 200!");
-        }
-        
+        p("> " + responseBuffer);
+        gotHttp200 = gotHttp200 || responseBuffer == "HTTP/1.1 200 OK";
         responseBuffer = "";
       }
     }
@@ -101,8 +181,39 @@ void loop() {
       responseBuffer.concat(c);
     }
   }
+  p("--- END Receive Chunk");
+  
+  if (gotHttp200) {
+    p("Got HTTP 200!");
+  }
+  
+  responseBuffer = "";
+  startTime = millis();
+  return gotHttp200;
 }
 
-void sleeping() {
-    Serial.print(".");
+void p(String str) {
+  Serial.println(str);
+}
+
+void p() {
+  Serial.println();
+}
+
+void clientPrintln(String str) {
+  client.println(str);
+  Serial.println(str);
+}
+
+void clientPrintln() {
+  client.println();
+  Serial.println();
+}
+
+void clientFlush() {
+  p("--- BEGIN Flush");
+  while (client.available()) {
+    client.read();
+  }
+  p("--- END Flush");
 }
