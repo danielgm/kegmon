@@ -126,10 +126,6 @@ bool connect() {
 
 bool request(int reading) {
   if (client.connected() || client.connect()) {
-    clientFlush();
-
-    p("Sending request.");
-
     p("Sending request. v=" + String(reading));
     p();
 
@@ -212,12 +208,4 @@ void clientPrintln(String str) {
 void clientPrintln() {
   client.println();
   Serial.println();
-}
-
-void clientFlush() {
-  p("--- BEGIN Flush");
-  while (client.available()) {
-    client.read();
-  }
-  p("--- END Flush");
 }
