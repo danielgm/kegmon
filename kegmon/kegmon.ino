@@ -10,6 +10,9 @@ unsigned long startTime;
 unsigned long timeoutTime;
 String responseBuffer;
 
+#define MAX_REQUEST_RETRIES 3
+int requestRetries;
+
 int state;
 
 #define STATE_DISCONNECTED 1
@@ -22,6 +25,7 @@ void setup() {
   startTime = millis();
   responseBuffer = "";
   state = STATE_DISCONNECTED;
+  requestRetries = 0;
   
   p("Initialized.");
 }
@@ -49,10 +53,19 @@ void loop() {
       if (ready() && receive()) {
         p("STATE_RESPONDED");
         state = STATE_RESPONDED;
+        requestRetries = 0;
       }
       else if (timedOut()) {
-        p("STATE_DISCONNECTED");
-        state = STATE_DISCONNECTED;
+        if (++requestRetries < MAX_REQUEST_RETRIES) {
+          p("STATE_CONNECTED");
+          state = STATE_CONNECTED;
+        }
+        else {
+          p("STATE_DISCONNECTED");
+          state = STATE_DISCONNECTED;
+          requestRetries = 0;
+          client.stop();
+        }
       }
       break;
 
