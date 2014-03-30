@@ -54,6 +54,8 @@ void loop() {
         }
         else if (timedOut()) {
           if (++requestRetries < MAX_REQUEST_RETRIES) {
+          }
+          else {
             p("STATE_DISCONNECTED");
             state = STATE_DISCONNECTED;
             requestRetries = 0;
