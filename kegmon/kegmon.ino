@@ -35,10 +35,14 @@ void loop() {
   
   switch (state) {
     case STATE_DISCONNECTED:
-      if (ready() && connect()) {
-        p();
-        p("STATE_CONNECTED");
-        state = STATE_CONNECTED;
+      if (ready()) {
+       if (connect()) {
+          p();
+          p("STATE_CONNECTED");
+          state = STATE_CONNECTED;
+        }
+        
+        startTime = millis();
       }
       break;
 
@@ -56,6 +60,8 @@ void loop() {
             client.stop();
           }
         }
+        
+        startTime = millis();
       }
       break;
 
@@ -78,6 +84,8 @@ void loop() {
             client.stop();
           }
         }
+        
+        startTime = millis();
       }
       break;
 
@@ -85,6 +93,8 @@ void loop() {
       if (ready()) {
         p("STATE_CONNECTED");
         state = STATE_CONNECTED;
+        
+        startTime = millis();
       }
       break;
 
@@ -139,12 +149,10 @@ bool connect() {
   WiFly.begin();
   if (WiFly.join(ssid, passphrase)) {
     p("Joined '" + String(ssid) + "'");
-    startTime = millis();
     return true;
   }
   else {
     p("Failed to join network. Waiting to try again.");
-    startTime = millis();
     return false;
   }
 }
@@ -172,13 +180,11 @@ bool request(int reading) {
     clientPrintln();
 
     p("Request sent.");
-    startTime = millis();
     timeoutTime = startTime + 5000;
     return true;
   }
   else {
     p("Error connecting with remote host");
-    startTime = millis();
     return false;
   }
 }
@@ -209,7 +215,6 @@ bool receive() {
   }
   
   responseBuffer = "";
-  startTime = millis();
   return gotHttp200;
 }
 
