@@ -43,28 +43,40 @@ void loop() {
       break;
 
     case STATE_CONNECTED:
-      if (ready() && request(flexiForceReading)) {
-        p("STATE_REQUESTED");
-        state = STATE_REQUESTED;
+      if (ready()) {
+        if (request(flexiForceReading)) {
+          p("STATE_REQUESTED");
+          state = STATE_REQUESTED;
+        }
+        else if (timedOut()) {
+          if (++requestRetries < MAX_REQUEST_RETRIES) {
+            p("STATE_DISCONNECTED");
+            state = STATE_DISCONNECTED;
+            requestRetries = 0;
+            client.stop();
+          }
+        }
       }
       break;
 
     case STATE_REQUESTED:
-      if (ready() && receive()) {
-        p("STATE_RESPONDED");
-        state = STATE_RESPONDED;
-        requestRetries = 0;
-      }
-      else if (timedOut()) {
-        if (++requestRetries < MAX_REQUEST_RETRIES) {
-          p("STATE_CONNECTED");
-          state = STATE_CONNECTED;
-        }
-        else {
-          p("STATE_DISCONNECTED");
-          state = STATE_DISCONNECTED;
+      if (ready()) {
+        if (receive()) {
+          p("STATE_RESPONDED");
+          state = STATE_RESPONDED;
           requestRetries = 0;
-          client.stop();
+        }
+        else if (timedOut()) {
+          if (++requestRetries < MAX_REQUEST_RETRIES) {
+            p("STATE_CONNECTED");
+            state = STATE_CONNECTED;
+          }
+          else {
+            p("STATE_DISCONNECTED");
+            state = STATE_DISCONNECTED;
+            requestRetries = 0;
+            client.stop();
+          }
         }
       }
       break;
