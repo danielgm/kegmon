@@ -3,5 +3,6 @@
 
 char ssid[] = "<ssid>";
 char passphrase[] = "<passphrase>";
+String xivelyApiKey = "<apikey>";
 
 #endif

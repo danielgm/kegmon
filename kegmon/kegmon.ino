@@ -170,7 +170,7 @@ bool request(int reading) {
     data = data + reading + "\"}]}";
 
     clientPrintln("PUT /v2/feeds/734040001.json HTTP/1.1");
-    clientPrintln("X-ApiKey: SU5B4qKyxQ9NjidtFHaiDNpEIjClFCATSqxmnCobzfS5J8kJ");
+    clientPrintln("X-ApiKey: " + xivelyApiKey);
     clientPrintln("User-Agent: Arduino/1.0");
     clientPrintln("Host: api.xively.com");
     clientPrintln("Content-Type: text/json");
