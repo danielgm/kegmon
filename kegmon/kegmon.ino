@@ -15,6 +15,9 @@ int requestRetries;
 
 int state;
 
+unsigned long readingSum;
+int numReadings;
+
 #define STATE_DISCONNECTED 1
 #define STATE_CONNECTED 2
 #define STATE_REQUESTED 3
@@ -26,13 +29,18 @@ void setup() {
   responseBuffer = "";
   state = STATE_DISCONNECTED;
   requestRetries = 0;
-  
+
+  readingSum = 0;
+  numReadings = 0;
+
   p("Initialized.");
 }
 
 void loop() {
   int flexiForceReading = analogRead(flexiForcePin);
-  
+  readingSum += flexiForceReading;
+  numReadings++;
+
   switch (state) {
     case STATE_DISCONNECTED:
       if (ready()) {
@@ -41,14 +49,17 @@ void loop() {
           p("STATE_CONNECTED");
           state = STATE_CONNECTED;
         }
-        
+
         startTime = millis();
       }
       break;
 
     case STATE_CONNECTED:
       if (ready()) {
-        if (request(flexiForceReading)) {
+        if (request(floor((float) readingSum / numReadings))) {
+          readingSum = 0;
+          numReadings = 0;
+
           p("STATE_REQUESTED");
           state = STATE_REQUESTED;
         }
@@ -62,7 +73,7 @@ void loop() {
             client.stop();
           }
         }
-        
+
         startTime = millis();
       }
       break;
@@ -73,6 +84,7 @@ void loop() {
           p("STATE_RESPONDED");
           state = STATE_RESPONDED;
           requestRetries = 0;
+          client.stop();
         }
         else if (timedOut()) {
           if (++requestRetries < MAX_REQUEST_RETRIES) {
@@ -86,16 +98,16 @@ void loop() {
             client.stop();
           }
         }
-        
+
         startTime = millis();
       }
       break;
 
     case STATE_RESPONDED:
       if (ready()) {
-        p("STATE_CONNECTED");
-        state = STATE_CONNECTED;
-        
+        p("STATE_DISCONNECTED");
+        state = STATE_DISCONNECTED;
+
         startTime = millis();
       }
       break;
@@ -103,8 +115,8 @@ void loop() {
     default:
       p("Error: unknown state.");
   }
-  
-  delay(100);
+
+  delay(250);
 }
 
 bool ready() {
@@ -126,8 +138,8 @@ bool ready() {
       break;
 
     case STATE_RESPONDED:
-      // Delay before moving back to connected state.
-      delay = 10000;
+      // Delay before moving back to disconnected state.
+      delay = 300000;
       break;
   }
 
@@ -147,7 +159,7 @@ bool timedOut() {
 bool connect() {
   p();
   p("Wifly trying to join.");
-  
+
   WiFly.begin();
   if (WiFly.join(ssid, passphrase)) {
     p("Joined '" + String(ssid) + "'");
@@ -175,7 +187,7 @@ bool request(int reading) {
     clientPrintln("Host: api.xively.com");
     clientPrintln("Content-Type: text/json");
     clientPrintln("Content-Length: " + String(data.length()));
-    //clientPrintln("Connection: close");
+    clientPrintln("Connection: close");
     clientPrintln();
     clientPrintln(data);
     clientPrintln();
@@ -194,7 +206,7 @@ bool request(int reading) {
 bool receive() {
   char c;
   bool gotHttp200 = false;
-  
+
   p();
   p("--- BEGIN Receive Chunk");
   while (client.available()) {
@@ -211,11 +223,11 @@ bool receive() {
     }
   }
   p("--- END Receive Chunk");
-  
+
   if (gotHttp200) {
     p("Got HTTP 200!");
   }
-  
+
   responseBuffer = "";
   return gotHttp200;
 }
