@@ -120,7 +120,7 @@ void loop() {
 }
 
 bool ready() {
-  int delay;
+  unsigned long delay;
   switch (state) {
     case STATE_DISCONNECTED:
       // Delay before attempting to connect.
