@@ -2,16 +2,14 @@
 #include "WiFly.h"
 #include "Credentials.h"
 
-int flexiForcePin = A0;
-
 WiFlyClient client("api.xively.com" , 80);
 
 unsigned long startTime;
 unsigned long timeoutTime;
 String responseBuffer;
 
-#define MAX_REQUEST_RETRIES 3
-int requestRetries;
+#define MAX_RETRIES 3
+int retries;
 
 int state;
 
@@ -21,14 +19,16 @@ int numReadings;
 #define STATE_DISCONNECTED 1
 #define STATE_CONNECTED 2
 #define STATE_REQUESTED 3
-#define STATE_RESPONDED 4
+#define STATE_TIMED_OUT 4
+#define STATE_RESPONDED_NG 5
+#define STATE_RESPONDED_OK 6
 
 void setup() {
   Serial.begin(9600);
   startTime = millis();
   responseBuffer = "";
   state = STATE_DISCONNECTED;
-  requestRetries = 0;
+  retries = 0;
 
   readingSum = 0;
   numReadings = 0;
@@ -37,7 +37,7 @@ void setup() {
 }
 
 void loop() {
-  int flexiForceReading = analogRead(flexiForcePin);
+  int flexiForceReading = analogRead(A0);
   readingSum += flexiForceReading;
   numReadings++;
 
@@ -60,16 +60,21 @@ void loop() {
           readingSum = 0;
           numReadings = 0;
 
+          p();
           p("STATE_REQUESTED");
           state = STATE_REQUESTED;
         }
         else if (timedOut()) {
-          if (++requestRetries < MAX_REQUEST_RETRIES) {
+          if (++retries < MAX_RETRIES) {
+            p();
+            p("STATE_TIMED_OUT");
+            state = STATE_TIMED_OUT;
           }
           else {
-            p("STATE_DISCONNECTED");
+            p();
+            p("STATE_DISCONNECTED (1)");
             state = STATE_DISCONNECTED;
-            requestRetries = 0;
+            retries = 0;
             client.stop();
           }
         }
@@ -81,20 +86,24 @@ void loop() {
     case STATE_REQUESTED:
       if (ready()) {
         if (receive()) {
-          p("STATE_RESPONDED");
-          state = STATE_RESPONDED;
-          requestRetries = 0;
+          p();
+          p("STATE_RESPONDED_OK");
+          state = STATE_RESPONDED_OK;
+          retries = 0;
           client.stop();
         }
         else if (timedOut()) {
-          if (++requestRetries < MAX_REQUEST_RETRIES) {
-            p("STATE_CONNECTED");
-            state = STATE_CONNECTED;
+          if (++retries < MAX_RETRIES) {
+            // Could also have been a timeout but not bothering to differentiate.
+            p();
+            p("STATE_RESPONDED_NG");
+            state = STATE_RESPONDED_NG;
           }
           else {
-            p("STATE_DISCONNECTED");
+            p();
+            p("STATE_DISCONNECTED (2)");
             state = STATE_DISCONNECTED;
-            requestRetries = 0;
+            retries = 0;
             client.stop();
           }
         }
@@ -103,9 +112,30 @@ void loop() {
       }
       break;
 
-    case STATE_RESPONDED:
+    case STATE_TIMED_OUT:
       if (ready()) {
-        p("STATE_DISCONNECTED");
+        p();
+        p("STATE_CONNECTED");
+        state = STATE_CONNECTED;
+
+        startTime = millis();
+      }
+      break;
+
+    case STATE_RESPONDED_NG:
+      if (ready()) {
+        p();
+        p("STATE_CONNECTED");
+        state = STATE_CONNECTED;
+
+        startTime = millis();
+      }
+      break;
+
+    case STATE_RESPONDED_OK:
+      if (ready()) {
+        p();
+        p("STATE_DISCONNECTED Ready to reconnect.");
         state = STATE_DISCONNECTED;
 
         startTime = millis();
@@ -120,34 +150,42 @@ void loop() {
 }
 
 bool ready() {
-  unsigned long delay;
+  unsigned long waitDuration;
   switch (state) {
     case STATE_DISCONNECTED:
       // Delay before attempting to connect.
-      delay = 5000;
+      waitDuration = 5000;
       break;
 
     case STATE_CONNECTED:
       // Delay before making a request.
-      delay = 5000;
+      waitDuration = 5000;
       break;
 
     case STATE_REQUESTED:
-      // Delay between checking for response.
-      delay = 500;
+      // Delay between request and checking for response.
+      waitDuration = 1000;
       break;
 
-    case STATE_RESPONDED:
+    case STATE_TIMED_OUT:
+      waitDuration = 30000;
+      break;
+
+    case STATE_RESPONDED_NG:
+      waitDuration = 30000;
+      break;
+
+    case STATE_RESPONDED_OK:
       // Delay before moving back to disconnected state.
-      delay = 300000;
+      waitDuration = 240000;
       break;
   }
 
-  if (millis() > startTime + delay) {
+  if (millis() > startTime + waitDuration) {
     return true;
   }
   else {
-    Serial.print(".");
+    /Serial.print(".");
     return false;
   }
 }
@@ -158,11 +196,11 @@ bool timedOut() {
 
 bool connect() {
   p();
-  p("Wifly trying to join.");
+  p("Wifly trying to join network.");
 
   WiFly.begin();
   if (WiFly.join(ssid, passphrase)) {
-    p("Joined '" + String(ssid) + "'");
+    p("Joined network.");
     return true;
   }
   else {
@@ -173,23 +211,31 @@ bool connect() {
 
 bool request(int reading) {
   if (client.connected() || client.connect()) {
-    p("Sending request. v=" + String(reading));
+    p();
+    p("Sending request.");
+    p(String(reading));
     p();
 
-    // Weird bug if you don't initialize it as a regular string first, then start adding values.
-    // @see http://arduino.cc/en/Tutorial/StringAdditionOperator#.Uyqhbq1dUdI
-    String data = "{\"version\":\"1.0.0\",\"datastreams\": [{\"id\":\"forceSensor\",\"current_value\":\"";
-    data = data + reading + "\"}]}";
-
     clientPrintln("PUT /v2/feeds/734040001.json HTTP/1.1");
-    clientPrintln("X-ApiKey: " + xivelyApiKey);
+    clientPrint("X-ApiKey: ");
+    clientPrintln(xivelyApiKey);
     clientPrintln("User-Agent: Arduino/1.0");
     clientPrintln("Host: api.xively.com");
     clientPrintln("Content-Type: text/json");
-    clientPrintln("Content-Length: " + String(data.length()));
+
+    // Remember to change this...
+    clientPrint("Content-Length: ");
+    clientPrintln(String(76 + String(reading).length()));
+
     clientPrintln("Connection: close");
     clientPrintln();
-    clientPrintln(data);
+
+    // ...if you change this:
+    clientPrint("{\"version\":\"1.0.0\",\"datastreams\":");
+    clientPrint("[{\"id\":\"forceSensor\",\"current_value\":\"");
+    clientPrint(String(reading));
+    clientPrintln("\"}]}");
+
     clientPrintln();
     clientPrintln();
 
@@ -213,7 +259,7 @@ bool receive() {
     char c = client.read();
     if (c == '\n' || c == '\r') {
       if (responseBuffer != "") {
-        p("> " + responseBuffer);
+        p(responseBuffer);
         gotHttp200 = gotHttp200 || responseBuffer == "HTTP/1.1 200 OK";
         responseBuffer = "";
       }
@@ -240,12 +286,17 @@ void p() {
   Serial.println();
 }
 
+void clientPrint(String str) {
+  Serial.print(str);
+  client.print(str);
+}
+
 void clientPrintln(String str) {
-  client.println(str);
   Serial.println(str);
+  client.println(str);
 }
 
 void clientPrintln() {
-  client.println();
   Serial.println();
+  client.println();
 }
