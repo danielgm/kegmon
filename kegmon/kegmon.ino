@@ -6,7 +6,9 @@ WiFlyClient client("api.xively.com" , 80);
 
 unsigned long startTime;
 unsigned long timeoutTime;
-String responseBuffer;
+
+#define RESPONSE_BUFFER_SIZE 128
+char responseBuffer[RESPONSE_BUFFER_SIZE];
 
 #define MAX_RETRIES 3
 int retries;
@@ -26,7 +28,7 @@ int numReadings;
 void setup() {
   Serial.begin(9600);
   startTime = millis();
-  responseBuffer = "";
+  responseBuffer[0] = '\0';
   state = STATE_DISCONNECTED;
   retries = 0;
 
@@ -163,15 +165,17 @@ bool ready() {
       break;
 
     case STATE_REQUESTED:
-      // Delay between request and checking for response.
-      waitDuration = 1000;
+      // Delay between checking for response.
+      waitDuration = 500;
       break;
 
     case STATE_TIMED_OUT:
+      // Delay before retry.
       waitDuration = 30000;
       break;
 
     case STATE_RESPONDED_NG:
+      // Delay before retry.
       waitDuration = 30000;
       break;
 
@@ -185,7 +189,7 @@ bool ready() {
     return true;
   }
   else {
-    /Serial.print(".");
+    Serial.print(".");
     return false;
   }
 }
@@ -213,8 +217,24 @@ bool request(int reading) {
   if (client.connected() || client.connect()) {
     p();
     p("Sending request.");
-    p(String(reading));
+    p(reading);
     p();
+
+    // Arduino's apparently sketchy String class used only to convert int to char[].
+    String str;
+
+    char readingStr[5];
+    str = String(reading);
+    str.toCharArray(readingStr, 5);
+
+    char data[128];
+    strcpy(data, "{\"version\":\"1.0.0\",\"datastreams\": [{\"id\":\"forceSensor\",\"current_value\":\"");
+    strcat(data, readingStr);
+    strcat(data, "\"}]}");
+
+    char dataLenStr[4];
+    str = String(strlen(data));
+    str.toCharArray(dataLenStr, 4);
 
     clientPrintln("PUT /v2/feeds/734040001.json HTTP/1.1");
     clientPrint("X-ApiKey: ");
@@ -222,20 +242,11 @@ bool request(int reading) {
     clientPrintln("User-Agent: Arduino/1.0");
     clientPrintln("Host: api.xively.com");
     clientPrintln("Content-Type: text/json");
-
-    // Remember to change this...
     clientPrint("Content-Length: ");
-    clientPrintln(String(76 + String(reading).length()));
-
+    clientPrintln(dataLenStr);
     clientPrintln("Connection: close");
     clientPrintln();
-
-    // ...if you change this:
-    clientPrint("{\"version\":\"1.0.0\",\"datastreams\":");
-    clientPrint("[{\"id\":\"forceSensor\",\"current_value\":\"");
-    clientPrint(String(reading));
-    clientPrintln("\"}]}");
-
+    clientPrintln(data);
     clientPrintln();
     clientPrintln();
 
@@ -251,6 +262,7 @@ bool request(int reading) {
 
 bool receive() {
   char c;
+  int i;
   bool gotHttp200 = false;
 
   p();
@@ -258,14 +270,16 @@ bool receive() {
   while (client.available()) {
     char c = client.read();
     if (c == '\n' || c == '\r') {
-      if (responseBuffer != "") {
+      if (responseBuffer[0] != '\0') {
         p(responseBuffer);
-        gotHttp200 = gotHttp200 || responseBuffer == "HTTP/1.1 200 OK";
-        responseBuffer = "";
+        gotHttp200 = gotHttp200 || strcmp(responseBuffer, "HTTP/1.1 200 OK");
+        responseBuffer[0] = '\0';
       }
     }
-    else {
-      responseBuffer.concat(c);
+    else if (strlen(responseBuffer) < RESPONSE_BUFFER_SIZE) {
+      i = strlen(responseBuffer);
+      responseBuffer[i] = c;
+      responseBuffer[i + 1] = '\0';
     }
   }
   p("--- END Receive Chunk");
@@ -274,11 +288,19 @@ bool receive() {
     p("Got HTTP 200!");
   }
 
-  responseBuffer = "";
+  responseBuffer[0] = '\0';
   return gotHttp200;
 }
 
 void p(String str) {
+  Serial.println(str);
+}
+
+void p(char* str) {
+  Serial.println(str);
+}
+
+void p(int str) {
   Serial.println(str);
 }
 
@@ -294,6 +316,26 @@ void clientPrint(String str) {
 void clientPrintln(String str) {
   Serial.println(str);
   client.println(str);
+}
+
+void clientPrint(char* str) {
+  Serial.print(str);
+  client.print(str);
+}
+
+void clientPrintln(char* str) {
+  Serial.println(str);
+  client.println(str);
+}
+
+void clientPrint(int x) {
+  client.print(x);
+  Serial.print(x);
+}
+
+void clientPrintln(int x) {
+  client.println(x);
+  Serial.println(x);
 }
 
 void clientPrintln() {
