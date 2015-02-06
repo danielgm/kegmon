@@ -10,6 +10,16 @@ unsigned long timeoutTime;
 #define RESPONSE_BUFFER_SIZE 128
 char responseBuffer[RESPONSE_BUFFER_SIZE];
 
+char requestHttpCommand[] = "PUT /v2/feeds/734040001.json HTTP/1.1";
+char requestApiKey[] = "X-ApiKey: ";
+char requestUserAgent[] = "User-Agent: Arduino/1.0";
+char requestHost[] = "Host: api.xively.com";
+char requestContentType[] = "Content-Type: text/json";
+char requestContentLength[] = "Content-Length: 80";
+char requestConnection[] = "Connection: close";
+char requestDataPrefix[] = "{\"version\":\"1.0.0\",\"datastreams\": [{\"id\":\"forceSensor\",\"current_value\":\"";
+char requestDataSuffix[] = "\"}]}";
+
 #define MAX_RETRIES 3
 int retries;
 
@@ -227,26 +237,25 @@ bool request(int reading) {
     str = String(reading);
     str.toCharArray(readingStr, 5);
 
-    char data[128];
-    strcpy(data, "{\"version\":\"1.0.0\",\"datastreams\": [{\"id\":\"forceSensor\",\"current_value\":\"");
-    strcat(data, readingStr);
-    strcat(data, "\"}]}");
-
-    char dataLenStr[4];
-    str = String(strlen(data));
-    str.toCharArray(dataLenStr, 4);
-
-    clientPrintln("PUT /v2/feeds/734040001.json HTTP/1.1");
-    clientPrint("X-ApiKey: ");
+    clientPrintln(requestHttpCommand);
+    clientPrint(requestApiKey);
     clientPrintln(xivelyApiKey);
-    clientPrintln("User-Agent: Arduino/1.0");
-    clientPrintln("Host: api.xively.com");
-    clientPrintln("Content-Type: text/json");
-    clientPrint("Content-Length: ");
-    clientPrintln(dataLenStr);
-    clientPrintln("Connection: close");
+    clientPrintln(requestUserAgent);
+    clientPrintln(requestHost);
+    clientPrintln(requestContentType);
+    clientPrintln(requestContentLength);
+    clientPrintln(requestConnection);
     clientPrintln();
-    clientPrintln(data);
+    clientPrint(requestDataPrefix);
+    clientPrint(readingStr);
+    clientPrint(requestDataSuffix);
+
+    // Pad the request with whitespace to meet the content length.
+    if (strlen(readingStr) < 4) clientPrint(" ");
+    if (strlen(readingStr) < 3) clientPrint(" ");
+    if (strlen(readingStr) < 2) clientPrint(" ");
+
+    clientPrintln();
     clientPrintln();
     clientPrintln();
 
@@ -306,16 +315,6 @@ void p(int str) {
 
 void p() {
   Serial.println();
-}
-
-void clientPrint(String str) {
-  Serial.print(str);
-  client.print(str);
-}
-
-void clientPrintln(String str) {
-  Serial.println(str);
-  client.println(str);
 }
 
 void clientPrint(char* str) {
