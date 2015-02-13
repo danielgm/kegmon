@@ -5,7 +5,6 @@
 WiFlyClient client("api.xively.com" , 80);
 
 unsigned long startTime;
-unsigned long timeoutTime;
 
 #define RESPONSE_BUFFER_SIZE 128
 char responseBuffer[RESPONSE_BUFFER_SIZE];
@@ -19,6 +18,7 @@ char requestContentLength[] = "Content-Length: 80";
 char requestConnection[] = "Connection: close";
 char requestDataPrefix[] = "{\"version\":\"1.0.0\",\"datastreams\": [{\"id\":\"forceSensor\",\"current_value\":\"";
 char requestDataSuffix[] = "\"}]}";
+char http200[] = "HTTP/1.1 200 OK";
 
 #define MAX_RETRIES 3
 int retries;
@@ -30,10 +30,12 @@ int numReadings;
 
 #define STATE_DISCONNECTED 1
 #define STATE_CONNECTED 2
-#define STATE_REQUESTED 3
-#define STATE_TIMED_OUT 4
-#define STATE_RESPONDED_NG 5
-#define STATE_RESPONDED_OK 6
+#define STATE_REQUEST_FAILED 3
+#define STATE_REQUESTED 4
+#define STATE_TIMED_OUT 5
+#define STATE_RESPONDED_NG 6
+#define STATE_RESPONDED_OK 7
+#define STATE_DISCONNECTED_ERROR 8
 
 void setup() {
   Serial.begin(9600);
@@ -55,6 +57,7 @@ void loop() {
 
   switch (state) {
     case STATE_DISCONNECTED:
+    case STATE_DISCONNECTED_ERROR:
       if (ready()) {
        if (connect()) {
           p();
@@ -76,27 +79,36 @@ void loop() {
           p("STATE_REQUESTED");
           state = STATE_REQUESTED;
         }
-        else if (timedOut()) {
-          if (++retries < MAX_RETRIES) {
-            p();
-            p("STATE_TIMED_OUT");
-            state = STATE_TIMED_OUT;
-          }
-          else {
-            p();
-            p("STATE_DISCONNECTED (1)");
-            state = STATE_DISCONNECTED;
-            retries = 0;
-            client.stop();
-          }
+        else if (++retries < MAX_RETRIES) {
+          p();
+          p("STATE_REQUEST_FAILED");
+          p(String(MAX_RETRIES - retries) + " retries remaining.");
+          state = STATE_REQUEST_FAILED;
+        }
+        else {
+          p();
+          p("STATE_DISCONNECTED (1)");
+          state = STATE_DISCONNECTED_ERROR;
+          retries = 0;
+          client.stop();
         }
 
         startTime = millis();
       }
       break;
 
-    case STATE_REQUESTED:
+    case STATE_REQUEST_FAILED:
       if (ready()) {
+        p();
+        p("STATE_CONNECTED");
+        state = STATE_CONNECTED;
+
+        startTime = millis();
+      }
+      break;
+
+    case STATE_REQUESTED:
+      if (client.available()) {
         if (receive()) {
           p();
           p("STATE_RESPONDED_OK");
@@ -104,24 +116,40 @@ void loop() {
           retries = 0;
           client.stop();
         }
-        else if (timedOut()) {
-          if (++retries < MAX_RETRIES) {
-            // Could also have been a timeout but not bothering to differentiate.
-            p();
-            p("STATE_RESPONDED_NG");
-            state = STATE_RESPONDED_NG;
-          }
-          else {
-            p();
-            p("STATE_DISCONNECTED (2)");
-            state = STATE_DISCONNECTED;
-            retries = 0;
-            client.stop();
-          }
+        else if (++retries < MAX_RETRIES) {
+          p();
+          p("STATE_RESPONDED_NG");
+          p(String(MAX_RETRIES - retries) + " retries remaining.");
+          state = STATE_RESPONDED_NG;
+        }
+        else {
+          p();
+          p("STATE_DISCONNECTED (1)");
+          state = STATE_DISCONNECTED_ERROR;
+          retries = 0;
+          client.stop();
         }
 
         startTime = millis();
       }
+      else if (ready()) {
+        if (++retries < MAX_RETRIES) {
+          p();
+          p("STATE_TIMED_OUT");
+          p(String(MAX_RETRIES - retries) + " retries remaining.");
+          state = STATE_TIMED_OUT;
+        }
+        else {
+          p();
+          p("STATE_DISCONNECTED (2)");
+          state = STATE_DISCONNECTED_ERROR;
+          retries = 0;
+          client.stop();
+        }
+
+        startTime = millis();
+      }
+
       break;
 
     case STATE_TIMED_OUT:
@@ -156,6 +184,7 @@ void loop() {
 
     default:
       p("Error: unknown state.");
+      break;
   }
 
   delay(250);
@@ -164,6 +193,11 @@ void loop() {
 bool ready() {
   unsigned long waitDuration;
   switch (state) {
+    case STATE_DISCONNECTED_ERROR:
+      // Delay before attempting to connect after three retries failed.
+      waitDuration = 240000;
+      break;
+
     case STATE_DISCONNECTED:
       // Delay before attempting to connect.
       waitDuration = 5000;
@@ -174,9 +208,14 @@ bool ready() {
       waitDuration = 5000;
       break;
 
+    case STATE_REQUEST_FAILED:
+      // Delay before retry.
+      waitDuration = 30000;
+      break;
+
     case STATE_REQUESTED:
-      // Delay between checking for response.
-      waitDuration = 500;
+      // Delay before giving up on a response.
+      waitDuration = 30000;
       break;
 
     case STATE_TIMED_OUT:
@@ -204,10 +243,6 @@ bool ready() {
   }
 }
 
-bool timedOut() {
-  return millis() > timeoutTime;
-}
-
 bool connect() {
   p();
   p("Wifly trying to join network.");
@@ -229,6 +264,8 @@ bool request(int reading) {
     p("Sending request.");
     p(reading);
     p();
+
+    client.flush();
 
     // Arduino's apparently sketchy String class used only to convert int to char[].
     String str;
@@ -260,7 +297,6 @@ bool request(int reading) {
     clientPrintln();
 
     p("Request sent.");
-    timeoutTime = startTime + 5000;
     return true;
   }
   else {
@@ -281,7 +317,7 @@ bool receive() {
     if (c == '\n' || c == '\r') {
       if (responseBuffer[0] != '\0') {
         p(responseBuffer);
-        gotHttp200 = gotHttp200 || strcmp(responseBuffer, "HTTP/1.1 200 OK");
+        gotHttp200 = gotHttp200 || strcmp(responseBuffer, http200);
         responseBuffer[0] = '\0';
       }
     }
@@ -296,6 +332,8 @@ bool receive() {
   if (gotHttp200) {
     p("Got HTTP 200!");
   }
+
+  client.flush();
 
   responseBuffer[0] = '\0';
   return gotHttp200;
