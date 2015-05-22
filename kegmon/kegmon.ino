@@ -13,21 +13,48 @@
 Adafruit_CharacterOLED lcd(OLED_V2, 6, 7, 8, 9, 10, 11, 12);
 
 unsigned long readingStartTime;
+unsigned long readingDuration;
 unsigned long readingSum;
 int numReadings;
 int prevValue;
 
+String labels[] = {
+  "Brewfulness:    ",
+  "Beerity:        ",
+  "Hoptitude:      ",
+  "Brewsklination: ",
+  "Beerliciousness:"
+};
+unsigned long labelStartTime;
+unsigned long labelDuration;
+int numLabels;
+
 void setup() {
   Serial.begin(9600);
+  randomSeed(analogRead(1));
   lcd.begin(16, 2);
 
-  lcd.setCursor(0, 0);
-  lcd.print("Brewfulness");
-
   readingStartTime = millis();
+  readingDuration = 10000;
   readingSum = 0;
   numReadings = 0;
   prevValue = -1;
+
+  labelStartTime = millis();
+  labelDuration = (unsigned long) 57 * 60 * 1000;
+  numLabels = sizeof(labels) / sizeof(String);
+
+  lcd.setCursor(0, 0);
+  lcd.print("ACL Kegmon init.");
+  lcd.setCursor(0, 1);
+  lcd.print("Cheers!");
+  delay(5000);
+
+  lcd.setCursor(0, 0);
+  lcd.print(labels[random(numLabels)]);
+
+  lcd.setCursor(0, 1);
+  lcd.print("0              ");
 }
 
 void loop() {
@@ -36,7 +63,8 @@ void loop() {
   numReadings++;
 
   unsigned long now = millis();
-  if (now - readingStartTime > 5000) {
+
+  if (now - readingStartTime > readingDuration) {
     int value = round((float) readingSum / numReadings);
     if (value != prevValue) {
       lcd.setCursor(0, 1);
@@ -50,6 +78,15 @@ void loop() {
     readingStartTime = now;
     readingSum = 0;
     numReadings = 0;
+  }
+
+  if (now - labelStartTime > labelDuration) {
+    if (random(100) < 70) {
+      lcd.setCursor(0, 0);
+      lcd.print(labels[random(numLabels)]);
+    }
+
+    labelStartTime = now;
   }
 
   delay(100);
