@@ -1,8 +1,20 @@
 #include "SPI.h"
-#include "WiFly.h"
+#include "Ethernet.h"
 #include "Credentials.h"
 
-WiFlyClient client("api.xively.com" , 80);
+
+// Enter a MAC address for your controller below.
+// Newer Ethernet shields have a MAC address printed on a sticker on the shield
+byte mac[] = { 0x90, 0xA2, 0xDA, 0x0F, 0x06, 0xB6 };
+// if you don't want to use DNS (and reduce your sketch size)
+// use the numeric IP instead of the name for the server:
+//IPAddress server(74,125,232,128);  // numeric IP for Google (no DNS)
+char server[] = "api.xively.com";    // name address for Google (using DNS)
+
+// Set the static IP address to use if the DHCP fails to assign
+IPAddress ip(192, 168, 0, 177);
+
+EthernetClient client;
 
 unsigned long startTime;
 
@@ -205,7 +217,7 @@ bool ready() {
 
     case STATE_CONNECTED:
       // Delay before making a request.
-      waitDuration = 5000;
+      waitDuration = 1000;
       break;
 
     case STATE_REQUEST_FAILED:
@@ -245,27 +257,23 @@ bool ready() {
 
 bool connect() {
   p();
-  p("Wifly trying to join network.");
-
-  WiFly.begin();
-  if (WiFly.join(ssid, passphrase)) {
-    p("Joined network.");
-    return true;
-  }
-  else {
-    p("Failed to join network. Waiting to try again.");
+  p("Connecting");
+  
+  if (Ethernet.begin(mac) == 0) {
+    p("Failed to configure Ethernet using DHCP");
     return false;
   }
+  
+  p("Connected");
+  return true;
 }
 
 bool request(int reading) {
-  if (client.connected() || client.connect()) {
+  if (client.connect(server, 80)) {
     p();
-    p("Sending request.");
+    p("Connected. Sending request.");
     p(reading);
     p();
-
-    client.flush();
 
     // Arduino's apparently sketchy String class used only to convert int to char[].
     String str;
@@ -332,8 +340,6 @@ bool receive() {
   if (gotHttp200) {
     p("Got HTTP 200!");
   }
-
-  client.flush();
 
   responseBuffer[0] = '\0';
   return gotHttp200;
